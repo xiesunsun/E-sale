@@ -1,0 +1,10 @@
+[project]
+name = "e-sale"
+version = "0.1.0"
+description = "A commerce system that evolves one software-engineering problem at a time"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "uvicorn>=0.53.0",
+]
