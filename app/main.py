@@ -85,3 +85,38 @@ def get_order(order_id: int) -> dict:
         return dict(row)
     finally:
         conn.close()
+
+
+@app.post("/orders/{order_id}/pay")
+def pay(order_id: int):
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN")
+        cursor = conn.execute(
+            """
+            UPDATE orders  
+            SET status = 'PAID'  
+            WHERE id = ? AND status = 'CREATED'
+        """,
+            (order_id,),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(
+                status_code=429, detail="Order already paid or does not exist"
+            )
+        conn.execute(
+            """
+            INSERT INTO payments (
+            order_id, 
+            status
+            ) VALUES (?, ?)
+        """,
+            (order_id, "SUCCESS"),
+        )
+        conn.commit()
+        return {"order_id": order_id, "status": "PAID"}
+    except:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
