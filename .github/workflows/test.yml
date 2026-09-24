@@ -8,6 +8,28 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: esale
+          POSTGRES_PASSWORD: esale
+          POSTGRES_DB: esale_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U esale -d esale_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      ESALE_TEST_DATABASE_URL: >-
+        host=127.0.0.1
+        port=5432
+        dbname=esale_test
+        user=esale
+        password=esale
+
     permissions:
       contents: read
     steps:
