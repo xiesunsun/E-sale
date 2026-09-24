@@ -142,14 +142,14 @@ def pay(
             """,
                 (order_id, "SUCCESS"),
             )
-        response = {"order_id": order_id, "status": "PAID"}
-        conn.execute(
-            """
-            UPDATE idempotency_keys
-            SET status = 'COMPLETED',
-                response_data = %s
-            WHERE idempotency_key = %s
-        """,
-            (Jsonb(response), idempotency_key),
-        )
+            response = {"order_id": order_id, "status": "PAID"}
+            conn.execute(
+                """
+                UPDATE idempotency_keys
+                SET status = 'COMPLETED',
+                    response_data = %s
+                WHERE idempotency_key = %s
+            """,
+                (Jsonb(response), idempotency_key),
+            )
         return response
