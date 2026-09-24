@@ -15,10 +15,10 @@ database_url = os.getenv(
 )
 if database_url.startswith("postgresql://"):
     database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    config.set_main_option(
-        "sqlalchemy.url",
-        database_url,
-    )
+config.set_main_option(
+    "sqlalchemy.url",
+    database_url,
+)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
