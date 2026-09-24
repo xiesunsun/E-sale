@@ -2,8 +2,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
-
+.env
+.DS_Store
 # Local experiment data
 *.db
 *.db-shm
 *.db-wal
+
