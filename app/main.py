@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Header
 from pydantic import BaseModel, Field
 
 from app.db import close_pool, get_connection, open_pool
+from psycopg.types.json import Jsonb
 
 
 class OrderCreate(BaseModel):
@@ -72,9 +73,54 @@ def get_order(order_id: int) -> dict:
 
 
 @app.post("/orders/{order_id}/pay")
-def pay(order_id: int):
+def pay(
+    order_id: int,
+    idempotency_key: str = Header(
+        ...,
+        alias="Idempotency-Key",
+    ),
+):
     with get_connection() as conn:
         with conn.transaction():
+            inserted = conn.execute(
+                """
+                INSERT INTO idempotency_keys (
+                    idempotency_key,
+                    operation,
+                    resource_id,
+                    status
+                ) VALUES (%s, %s, %s, %s)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                RETURNING idempotency_key
+            """,
+                (idempotency_key, "PAY_ORDER", order_id, "PROGRESSING"),
+            ).fetchone()
+            if inserted is None:
+                existing = conn.execute(
+                    """
+                    SELECT operation, resource_id, status, response_data
+                    FROM idempotency_keys
+                    WHERE idempotency_key = %s
+                """,
+                    (idempotency_key,),
+                ).fetchone()
+                if existing is None:
+                    raise RuntimeError("Idempotency record disappeared")
+                if (
+                    existing["operation"] != "PAY_ORDER"
+                    or existing["resource_id"] != order_id
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Idempotency key already used for a different operation or resource",
+                    )
+                if existing["status"] == "COMPLETED":
+                    return existing["response_data"]
+                raise HTTPException(
+                    status_code=409,
+                    detail="Payment is already in progress for this order",
+                )
+            # 第一次请求支付
             cursor = conn.execute(
                 """
                 UPDATE orders
@@ -96,4 +142,14 @@ def pay(order_id: int):
             """,
                 (order_id, "SUCCESS"),
             )
-        return {"order_id": order_id, "status": "PAID"}
+        response = {"order_id": order_id, "status": "PAID"}
+        conn.execute(
+            """
+            UPDATE idempotency_keys
+            SET status = 'COMPLETED',
+                response_data = %s
+            WHERE idempotency_key = %s
+        """,
+            (Jsonb(response), idempotency_key),
+        )
+        return response

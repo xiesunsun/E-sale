@@ -16,12 +16,13 @@ def test_concurrent_payment_only_one_succeeds(client):
 
     order_id = response.json()["id"]
 
-    def pay():
-        return client.post(f"/orders/{order_id}/pay")
+    def pay(key):
+        headers = {"Idempotency-Key": key}
+        return client.post(f"/orders/{order_id}/pay", headers=headers)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        future1 = executor.submit(pay)
-        future2 = executor.submit(pay)
+        future1 = executor.submit(pay, "pay-A")
+        future2 = executor.submit(pay, "pay-B")
 
         response1 = future1.result()
         response2 = future2.result()

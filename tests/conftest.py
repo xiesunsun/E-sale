@@ -8,7 +8,7 @@ import os
 def reset_database():
     with get_connection() as conn:
         conn.execute("""
-            TRUNCATE TABLE payments,orders RESTART IDENTITY CASCADE
+            TRUNCATE TABLE idempotency_keys,payments,orders RESTART IDENTITY CASCADE
             """)
 
 
