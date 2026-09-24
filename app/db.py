@@ -7,7 +7,10 @@ _pool: ConnectionPool | None = None
 
 
 def get_database_url() -> str:
-    return os.getenv("ESALE_DATABASE_URL", "host=127.0.0.1 port=5432 dbname=esale")
+    return os.getenv(
+        "ESALE_DATABASE_URL",
+        "postgresql://127.0.0.1:5432/esale",
+    )
 
 
 def open_pool() -> None:
@@ -40,22 +43,3 @@ def get_connection():
         )
     with _pool.connection() as conn:
         yield conn
-
-
-def init_db() -> None:
-    with get_connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS orders (
-              id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-              product_id  BIGINT NOT NULL,
-              quantity INTEGER NOT NULL,
-              status TEXT NOT NULL
-            )
-            """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS payments(
-              id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-              order_id BIGINT NOT NULL UNIQUE,
-              status TEXT NOT NULL
-            )
-            """)

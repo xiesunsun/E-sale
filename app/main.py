@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.db import close_pool, get_connection, init_db, open_pool
+from app.db import close_pool, get_connection, open_pool
 
 
 class OrderCreate(BaseModel):
@@ -18,17 +18,10 @@ class Order(BaseModel):
     status: str
 
 
-# @asynccontextmanager
-# async def lifespan(_: FastAPI):
-#     init_db()
-#     yield
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     open_pool()
     try:
-        init_db()
         yield
     finally:
         close_pool()

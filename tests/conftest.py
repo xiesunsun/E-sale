@@ -15,7 +15,7 @@ def reset_database():
 @pytest.fixture
 def client(monkeypatch):
     test_database_url = os.getenv(
-        "ESALE_TEST_DATABASE_URL", "host=127.0.0.1 port=5432 dbname=esale_test"
+        "ESALE_TEST_DATABASE_URL", "postgresql://127.0.0.1:5432/esale_test"
     )
     monkeypatch.setenv(
         "ESALE_DATABASE_URL",
