@@ -10,14 +10,18 @@ def claim_job():
                 FROM jobs
                 WHERE status='PENDING'
                 ORDER BY id
+                For UPDATE SKIP LOCKED
                 LIMIT 1
                 """).fetchone()
             if job is None:
                 return None
+
+            time.sleep(2)
+
             conn.execute(
                 """
                 UPDATE jobs
-                SET status='PROCESSSING'
+                SET status='PROCESSING'
                 WHERE id=%s
                 """,
                 (job["id"],),
