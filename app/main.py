@@ -145,6 +145,20 @@ def pay(
             response = {"order_id": order_id, "status": "PAID"}
             conn.execute(
                 """
+                INSERT INTO jobs (
+                    job_type,
+                    payload,
+                    status
+                ) VALUES (%s, %s, %s)
+            """,
+                (
+                    "SEND_PAYMENT_NOTIFICATION",
+                    Jsonb({"order_id": order_id}),
+                    "PENDING",
+                ),
+            )
+            conn.execute(
+                """
                 UPDATE idempotency_keys
                 SET status = 'COMPLETED',
                     response_data = %s
