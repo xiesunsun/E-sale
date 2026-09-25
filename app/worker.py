@@ -34,13 +34,30 @@ def claim_job():
 
 
 def execute_job(job):
-    if job["job_type"] == "SEND_PAYMENT_NOTIFICATION":
-        order_id = job["payload"]["order_id"]
-        print(f"sending payment notification for order {order_id}")
-        # raise RuntimeError("Simulated woker failure")
-        # 模拟一个慢任务
-        time.sleep(2)
-        print(f"notification sent for order { order_id}")
+    if job["job_type"] != "SEND_PAYMENT_NOTIFICATION":
+        return
+    order_id = job["payload"]["order_id"]
+    with get_connection() as conn:
+        inserted = conn.execute(
+            """
+            INSERT INTO notification_deliveries (
+                job_id,
+                order_id
+            ) VALUES (%s, %s)
+            ON CONFLICT (job_id) DO NOTHING
+            RETURNING id
+        """,
+            (job["id"], order_id),
+        ).fetchone()
+        if inserted is None:
+            print(f"notification for order {order_id} already sent")
+            return
+        print(f"notification sent  for order {order_id}," f"job {job['id']}")
+    # print(f"sending payment notification for order {order_id}")
+    # raise RuntimeError("Simulated woker failure")
+    # 模拟一个慢任务
+    # time.sleep(2)
+    # print(f"notification sent for order { order_id}")
 
 
 def complete_job(job_id):
@@ -66,6 +83,7 @@ def run_worker():
                 time.sleep(1)
                 continue
             execute_job(job)
+            # raise RuntimeError("crash before ack")
             complete_job(job["id"])
 
     finally:
