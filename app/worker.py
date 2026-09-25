@@ -1,6 +1,8 @@
 import time
 from app.db import open_pool, close_pool, get_connection
 
+MAX_ATTEMPTS = 3
+
 
 def claim_job():
     with get_connection() as conn:
@@ -34,6 +36,7 @@ def claim_job():
 
 
 def execute_job(job):
+    raise RuntimeError("always fail")
     if job["job_type"] != "SEND_PAYMENT_NOTIFICATION":
         return
     order_id = job["payload"]["order_id"]
@@ -74,6 +77,23 @@ def complete_job(job_id):
             )
 
 
+def fail_job(job_id):
+    with get_connection() as conn:
+        with conn.transaction():
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status= CASE
+                    WHEN attempts >= %s THEN 'FAILED'
+                    ELSE 'PENDING'
+                END,
+                locked_at = NULL
+                WHERE id=%s
+                """,
+                (MAX_ATTEMPTS, job_id),
+            )
+
+
 def run_worker():
     open_pool()
     try:
@@ -82,8 +102,12 @@ def run_worker():
             if job is None:
                 time.sleep(1)
                 continue
-            execute_job(job)
-            # raise RuntimeError("crash before ack")
+            try:
+                execute_job(job)
+            except Exception as e:
+                print(f"job {job['id']} failed with error: {e}")
+                fail_job(job["id"])
+                continue
             complete_job(job["id"])
 
     finally:
