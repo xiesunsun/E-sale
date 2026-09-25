@@ -10,7 +10,13 @@ def claim_job():
             job = conn.execute("""
                 SELECT id,job_type,payload
                 FROM jobs
-                WHERE status='PENDING'
+                WHERE (
+                    status = 'PENDING'
+                    AND (
+                        next_attempt_at IS NULL
+                        OR next_attempt_at <= now()
+                    )
+                )
                 OR(
                     status='PROCESSING'
                     AND locked_at < now() - interval '10 seconds'
@@ -36,7 +42,7 @@ def claim_job():
 
 
 def execute_job(job):
-    raise RuntimeError("always fail")
+    # raise RuntimeError("always fail")
     if job["job_type"] != "SEND_PAYMENT_NOTIFICATION":
         return
     order_id = job["payload"]["order_id"]
@@ -83,14 +89,18 @@ def fail_job(job_id):
             conn.execute(
                 """
                 UPDATE jobs
-                SET status= CASE
+                SET status = CASE
                     WHEN attempts >= %s THEN 'FAILED'
                     ELSE 'PENDING'
                 END,
-                locked_at = NULL
-                WHERE id=%s
+                locked_at = NULL,
+                next_attempt_at = CASE
+                    WHEN attempts >= %s THEN NULL
+                    ELSE now() + (power(2, attempts - 1) * interval '1 second')
+                END
+                WHERE id = %s
                 """,
-                (MAX_ATTEMPTS, job_id),
+                (MAX_ATTEMPTS, MAX_ATTEMPTS, job_id),
             )
 
 
