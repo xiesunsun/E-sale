@@ -9,6 +9,10 @@ def claim_job():
                 SELECT id,job_type,payload
                 FROM jobs
                 WHERE status='PENDING'
+                OR(
+                    status='PROCESSING'
+                    AND locked_at < now() - interval '10 seconds'
+                )
                 ORDER BY id
                 For UPDATE SKIP LOCKED
                 LIMIT 1
@@ -16,12 +20,12 @@ def claim_job():
             if job is None:
                 return None
 
-            time.sleep(2)
-
             conn.execute(
                 """
                 UPDATE jobs
-                SET status='PROCESSING'
+                SET status='PROCESSING',
+                locked_at=now(),
+                attempts=attempts+1
                 WHERE id=%s
                 """,
                 (job["id"],),
@@ -33,6 +37,7 @@ def execute_job(job):
     if job["job_type"] == "SEND_PAYMENT_NOTIFICATION":
         order_id = job["payload"]["order_id"]
         print(f"sending payment notification for order {order_id}")
+        # raise RuntimeError("Simulated woker failure")
         # 模拟一个慢任务
         time.sleep(2)
         print(f"notification sent for order { order_id}")
@@ -44,7 +49,8 @@ def complete_job(job_id):
             conn.execute(
                 """
                 UPDATE jobs
-                SET status='COMPLETED'
+                SET status='COMPLETED',
+                locked_at = NULL
                 WHERE id=%s
                 """,
                 (job_id,),
