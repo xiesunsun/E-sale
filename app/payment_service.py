@@ -4,6 +4,7 @@ from fastapi import FastAPI, Header, HTTPException
 from psycopg.types.json import Jsonb
 
 from app.db import open_pool, close_pool, get_connection
+import time
 
 
 @asynccontextmanager
@@ -138,5 +139,5 @@ def pay_order(
                     idempotency_key,
                 ),
             )
-
+        time.sleep(3)
         return response

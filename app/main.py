@@ -162,14 +162,24 @@ def pay(
         alias="Idempotency-Key",
     ),
 ):
-    response = httpx.post(
-        f"{PAYMENT_SERVICE_URL}/internal/pay/{order_id}",
-        headers={
-            "Idempotency-Key": idempotency_key,
-        },
-        timeout=2.0,
-    )
-
+    try:
+        response = httpx.post(
+            f"{PAYMENT_SERVICE_URL}/internal/pay/{order_id}",
+            headers={
+                "Idempotency-Key": idempotency_key,
+            },
+            timeout=2.0,
+        )
+    except httpx.ConnectError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Payment service unavailable",
+        ) from e
+    except httpx.ReadTimeout as e:
+        raise HTTPException(
+            status_code=504,
+            detail="Payment result unknown;retry with the same idempotency key",
+        ) from e
     if response.status_code >= 400:
         detail = response.json().get(
             "detail",
