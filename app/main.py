@@ -163,6 +163,7 @@ def pay(
     ),
 ):
     MAX_ATTEMPTS = 2
+    BASE_BACKOFF = 0.2
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = httpx.post(
@@ -172,20 +173,16 @@ def pay(
                 },
                 timeout=2.0,
             )
-        except httpx.ConnectError as e:
+            break
+        except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt == MAX_ATTEMPTS:
+                status_code = 503 if isinstance(e, httpx.ConnectError) else 504
                 raise HTTPException(
-                    status_code=503,
+                    status_code=status_code,
                     detail="Payment service unavailable",
                 ) from e
-            time.sleep(0.5)
-        except httpx.ReadTimeout as e:
-            if attempt == MAX_ATTEMPTS:
-                raise HTTPException(
-                    status_code=504,
-                    detail="Payment result unknown;retry with the same idempotency key",
-                ) from e
-            time.sleep(0.5)
+            delay = BASE_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0, 0.1)
+            time.sleep(delay)
     if response.status_code >= 400:
         detail = response.json().get(
             "detail",

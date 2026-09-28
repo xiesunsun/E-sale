@@ -5,6 +5,9 @@ from psycopg.types.json import Jsonb
 
 from app.db import open_pool, close_pool, get_connection
 import time
+import os
+
+PAYMENT_DEBUG_DELAY_SECONDS = float(os.getenv("ESALE_PAYMENT_DEBUG_DELAY_SECONDS", "0"))
 
 
 @asynccontextmanager
@@ -139,5 +142,12 @@ def pay_order(
                     idempotency_key,
                 ),
             )
-        time.sleep(3)
+        if PAYMENT_DEBUG_DELAY_SECONDS > 0:
+            time.sleep(PAYMENT_DEBUG_DELAY_SECONDS)
+
         return response
+
+
+@app.get("/health/live")
+def liveness():
+    return {"status": "alive"}

@@ -56,5 +56,22 @@ jobs:
         env:
           ESALE_DATABASE_URL: ${{ env.ESALE_TEST_DATABASE_URL }}
         run: uv run alembic upgrade head 
+      - name: Start payment service
+        env:
+          ESALE_DATABASE_URL: ${{ env.ESALE_TEST_DATABASE_URL }}
+        run: |
+          uv run uvicorn app.payment_service:app \
+            --host 127.0.0.1 \
+            --port 9000 > /tmp/payment-service.log 2>&1 &
+
+          for i in {1..20}; do
+            if curl -sf http://127.0.0.1:9000/health/live; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          cat /tmp/payment-service.log
+          exit 1
       - name: Run tests
         run: uv run pytest -q
