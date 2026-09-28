@@ -10,10 +10,13 @@ import json
 import time
 import uuid
 import random
+import os
 
 CACHE_NOT_FOUND = "__NOT_FOUND__"
 CACHE_TTL_SECONDS = 10
 NEGATIVE_CACHE_TTL_SECONDS = 5
+
+INSTANCE_ID = os.getenv("ESALE_INSTANCE_ID", "unknown")
 
 
 class OrderCreate(BaseModel):
@@ -277,3 +280,13 @@ def readiness():
         raise HTTPException(status_code=503, detail="Database not ready") from e
 
     return {"status": "ready"}
+
+
+@app.get("/debug/sleep/{seconds}")
+def debug_sleep(seconds: float):
+    time.sleep(seconds)
+
+    return {
+        "instance": INSTANCE_ID,
+        "slept": seconds,
+    }
