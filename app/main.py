@@ -22,6 +22,7 @@ PAYMENT_SERVICE_URL = os.getenv(
     "ESALE_PAYMENT_SERVICE_URL",
     "http://127.0.0.1:9000",
 )
+RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
 class OrderCreate(BaseModel):
@@ -173,6 +174,16 @@ def pay(
                 },
                 timeout=2.0,
             )
+            if response.status_code in RETRYABLE_STATUS_CODES:
+                if attempt == MAX_ATTEMPTS:
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail="Payment service temporarily unavailable",
+                    )
+
+                delay = BASE_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0, 0.1)
+                time.sleep(delay)
+                continue
             break
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt == MAX_ATTEMPTS:
