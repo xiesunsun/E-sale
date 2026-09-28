@@ -261,3 +261,19 @@ def load_order_from_db(order_id: int) -> dict | None:
         if row is None:
             raise HTTPException(status_code=404, detail="Order not found")
         return dict(row)
+
+
+@app.post("/health/live")
+def liveness():
+    return {"status": "alive"}
+
+
+@app.post("/health/ready")
+def readiness():
+    try:
+        with get_connection() as conn:
+            conn.execute("SELECT 1")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="Database not ready") from e
+
+    return {"status": "ready"}
