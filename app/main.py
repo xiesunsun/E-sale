@@ -10,6 +10,8 @@ import json
 import time
 import uuid
 
+CACHE_NOT_FOUND = "__NOT_FOUND__"
+
 
 class OrderCreate(BaseModel):
     product_id: int = Field(gt=0)
@@ -68,6 +70,9 @@ def get_order(order_id: int) -> dict:
     key = f"order:{order_id}"
     lock_key = f"lock:order:{order_id}"
     cached = cache.get(key)
+    if cached == CACHE_NOT_FOUND:
+        print("NEGATIVE CACHE HIT")
+        raise HTTPException(status_code=404, detail="Order not found")
     if cached is not None:
         print("CACHE HIT")
         return json.loads(cached)
@@ -87,6 +92,7 @@ def get_order(order_id: int) -> dict:
                     (order_id,),
                 ).fetchone()
                 if row is None:
+                    cache.set(key, CACHE_NOT_FOUND, ex=5)  # 设置负缓存的过期时间为5秒
                     raise HTTPException(status_code=404, detail="Order not found")
                 order = dict(row)
                 CACHE_TTL_SECONDS = 10
@@ -99,7 +105,11 @@ def get_order(order_id: int) -> dict:
         time.sleep(0.05)
 
         cached = cache.get(key)
-
+        if cached == CACHE_NOT_FOUND:
+            raise HTTPException(
+                status_code=404,
+                detail="Order not found",
+            )
         if cached is not None:
             print("CACHE HIT AFTER WAIT")
             return json.loads(cached)
