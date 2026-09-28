@@ -176,10 +176,16 @@ def pay(
             break
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt == MAX_ATTEMPTS:
-                status_code = 503 if isinstance(e, httpx.ConnectError) else 504
+                if isinstance(e, httpx.ConnectError):
+                    status_code = 503
+                    detail = "Payment service unavailable"
+                else:
+                    status_code = 504
+                    detail = "Payment result unknown"
+
                 raise HTTPException(
                     status_code=status_code,
-                    detail="Payment service unavailable",
+                    detail=detail,
                 ) from e
             delay = BASE_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0, 0.1)
             time.sleep(delay)
