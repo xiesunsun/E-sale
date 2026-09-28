@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 from app.db import close_pool, get_connection, open_pool
 from psycopg.types.json import Jsonb
+from app.cache import open_cache, close_cache, get_cache
+import json
 
 
 class OrderCreate(BaseModel):
@@ -22,10 +24,12 @@ class Order(BaseModel):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     open_pool()
+    open_cache()
     try:
         yield
     finally:
         close_pool()
+        close_cache()
 
 
 app = FastAPI(title="E-sale", version="0.1.0", lifespan=lifespan)
@@ -58,6 +62,13 @@ def create_order(order: OrderCreate) -> dict:
 
 @app.get("/orders/{order_id}", response_model=Order)
 def get_order(order_id: int) -> dict:
+    cache = get_cache()
+    key = f"order:{order_id}"
+    cached = cache.get(key)
+    if cached is not None:
+        print("CACHE HIT")
+        return json.loads(cached)
+    print("CACHE MISS")
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -69,7 +80,9 @@ def get_order(order_id: int) -> dict:
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Order not found")
-        return dict(row)
+        order = dict(row)
+        cache.set(key, json.dumps(order))
+        return order
 
 
 @app.post("/orders/{order_id}/pay")
