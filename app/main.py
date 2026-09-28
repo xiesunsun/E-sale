@@ -9,8 +9,11 @@ from app.cache import open_cache, close_cache, get_cache, release_lock
 import json
 import time
 import uuid
+import random
 
 CACHE_NOT_FOUND = "__NOT_FOUND__"
+CACHE_TTL_SECONDS = 10
+NEGATIVE_CACHE_TTL_SECONDS = 5
 
 
 class OrderCreate(BaseModel):
@@ -70,6 +73,7 @@ def get_order(order_id: int) -> dict:
     key = f"order:{order_id}"
     lock_key = f"lock:order:{order_id}"
     cached = cache.get(key)
+    ttl = CACHE_TTL_SECONDS + random.randint(0, 5)
     if cached == CACHE_NOT_FOUND:
         print("NEGATIVE CACHE HIT")
         raise HTTPException(status_code=404, detail="Order not found")
@@ -95,8 +99,7 @@ def get_order(order_id: int) -> dict:
                     cache.set(key, CACHE_NOT_FOUND, ex=5)  # 设置负缓存的过期时间为5秒
                     raise HTTPException(status_code=404, detail="Order not found")
                 order = dict(row)
-                CACHE_TTL_SECONDS = 10
-                cache.set(key, json.dumps(order), ex=CACHE_TTL_SECONDS)
+                cache.set(key, json.dumps(order), ex=ttl)
                 return order
         finally:
             release_lock(lock_key, lock_token)
