@@ -86,7 +86,14 @@ def get_order(order_id: int) -> dict:
         return json.loads(cached)
     print("CACHE MISS")
     lock_token = str(uuid.uuid4())
-    acquired = cache.set(lock_key, lock_token, nx=True, ex=3)  # 设置锁的过期时间为3秒
+    try:
+        acquired = cache.set(
+            lock_key, lock_token, nx=True, ex=3
+        )  # 设置锁的过期时间为3秒
+
+    except RedisError as e:
+        print("REDIS ERROR:", e)
+        return load_order_from_db(order_id)
     if acquired:
         print("REBUILD LOCK ACQUIRED")
         try:
@@ -100,18 +107,30 @@ def get_order(order_id: int) -> dict:
                     (order_id,),
                 ).fetchone()
                 if row is None:
-                    cache.set(key, CACHE_NOT_FOUND, ex=5)  # 设置负缓存的过期时间为5秒
+                    try:
+                        cache.set(
+                            key, CACHE_NOT_FOUND, ex=5
+                        )  # 设置负缓存的过期时间为5秒
+
+                    except RedisError as e:
+                        print("REDIS ERROR:", e)
                     raise HTTPException(status_code=404, detail="Order not found")
                 order = dict(row)
-                cache.set(key, json.dumps(order), ex=ttl)
+                try:
+                    cache.set(key, json.dumps(order), ex=ttl)
+                except RedisError as e:
+                    print("REDIS ERROR:", e)
                 return order
         finally:
             release_lock(lock_key, lock_token)
     print("WAITING FOR CACHE REBUILD")
     for _ in range(20):
         time.sleep(0.05)
-
-        cached = cache.get(key)
+        try:
+            cached = cache.get(key)
+        except RedisError as e:
+            print("REDIS ERROR:", e)
+            return load_order_from_db(order_id)
         if cached == CACHE_NOT_FOUND:
             raise HTTPException(
                 status_code=404,
