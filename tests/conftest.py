@@ -3,6 +3,11 @@ from fastapi.testclient import TestClient
 from app.db import get_connection
 from app.main import app
 import os
+from app.cache import get_cache
+
+
+def reset_cache():
+    get_cache().flushdb()  # 清空 Redis 缓存
 
 
 def reset_database():
@@ -23,7 +28,9 @@ def client(monkeypatch):
     )
     with TestClient(app) as test_client:
         reset_database()
+        reset_cache()
         try:
             yield test_client
         finally:
             reset_database()
+            reset_cache()
