@@ -81,7 +81,8 @@ def get_order(order_id: int) -> dict:
         if row is None:
             raise HTTPException(status_code=404, detail="Order not found")
         order = dict(row)
-        cache.set(key, json.dumps(order))
+        CACHE_TTL_SECONDS = 10
+        cache.set(key, json.dumps(order), ex=CACHE_TTL_SECONDS)
         return order
 
 
