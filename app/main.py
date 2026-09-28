@@ -7,6 +7,8 @@ from app.db import close_pool, get_connection, open_pool
 from psycopg.types.json import Jsonb
 from app.cache import open_cache, close_cache, get_cache
 import json
+import time
+import uuid
 
 
 class OrderCreate(BaseModel):
@@ -64,26 +66,48 @@ def create_order(order: OrderCreate) -> dict:
 def get_order(order_id: int) -> dict:
     cache = get_cache()
     key = f"order:{order_id}"
+    lock_key = f"lock:order:{order_id}"
     cached = cache.get(key)
     if cached is not None:
         print("CACHE HIT")
         return json.loads(cached)
     print("CACHE MISS")
-    with get_connection() as conn:
-        row = conn.execute(
-            """
-            SELECT id, product_id, quantity, status
-            FROM orders
-            WHERE id = %s
-            """,
-            (order_id,),
-        ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Order not found")
-        order = dict(row)
-        CACHE_TTL_SECONDS = 10
-        cache.set(key, json.dumps(order), ex=CACHE_TTL_SECONDS)
-        return order
+    lock_token = str(uuid.uuid4())
+    acquired = cache.set(lock_key, lock_token, nx=True, ex=3)  # 设置锁的过期时间为5秒
+    if acquired:
+        print("REBUILD LOCK ACQUIRED")
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT id, product_id, quantity, status
+                    FROM orders
+                    WHERE id = %s
+                    """,
+                    (order_id,),
+                ).fetchone()
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Order not found")
+                order = dict(row)
+                CACHE_TTL_SECONDS = 10
+                cache.set(key, json.dumps(order), ex=CACHE_TTL_SECONDS)
+                return order
+        finally:
+            cache.delete(lock_key)  # 删除锁，允许其他请求获取锁
+    print("WAITING FOR CACHE REBUILD")
+    for _ in range(20):
+        time.sleep(0.05)
+
+        cached = cache.get(key)
+
+        if cached is not None:
+            print("CACHE HIT AFTER WAIT")
+            return json.loads(cached)
+
+    raise HTTPException(
+        status_code=503,
+        detail="Cache rebuild timeout",
+    )
 
 
 @app.post("/orders/{order_id}/pay")
