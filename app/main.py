@@ -266,12 +266,12 @@ def load_order_from_db(order_id: int) -> dict | None:
         return dict(row)
 
 
-@app.post("/health/live")
+@app.get("/health/live")
 def liveness():
     return {"status": "alive"}
 
 
-@app.post("/health/ready")
+@app.get("/health/ready")
 def readiness():
     try:
         with get_connection() as conn:
