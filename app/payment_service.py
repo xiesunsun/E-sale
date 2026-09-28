@@ -8,6 +8,13 @@ import time
 import os
 
 PAYMENT_DEBUG_DELAY_SECONDS = float(os.getenv("ESALE_PAYMENT_DEBUG_DELAY_SECONDS", "0"))
+PAYMENT_FORCE_503 = (
+    os.getenv(
+        "ESALE_PAYMENT_FORCE_503",
+        "0",
+    )
+    == "1"
+)
 
 
 @asynccontextmanager
@@ -30,6 +37,12 @@ def pay_order(
     order_id: int,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
 ):
+    if PAYMENT_FORCE_503:
+        print("FORCED 503")
+        raise HTTPException(
+            status_code=503,
+            detail="Payment service overloaded",
+        )
     with get_connection() as conn:
         with conn.transaction():
             inserted = conn.execute(

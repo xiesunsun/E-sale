@@ -12,7 +12,12 @@ import uuid
 import random
 import os
 import httpx
+from app.circuit_breaker import CircuitBreaker
 
+payment_breaker = CircuitBreaker(
+    failure_threshold=3,
+    recovery_timeout=5.0,
+)
 CACHE_NOT_FOUND = "__NOT_FOUND__"
 CACHE_TTL_SECONDS = 10
 NEGATIVE_CACHE_TTL_SECONDS = 5
@@ -163,6 +168,11 @@ def pay(
         alias="Idempotency-Key",
     ),
 ):
+    if not payment_breaker.allow_request():
+        raise HTTPException(
+            status_code=503,
+            detail="Payment circuit is open",
+        )
     MAX_ATTEMPTS = 2
     BASE_BACKOFF = 0.2
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -176,6 +186,7 @@ def pay(
             )
             if response.status_code in RETRYABLE_STATUS_CODES:
                 if attempt == MAX_ATTEMPTS:
+                    payment_breaker.record_failure()
                     raise HTTPException(
                         status_code=response.status_code,
                         detail="Payment service temporarily unavailable",
@@ -184,9 +195,11 @@ def pay(
                 delay = BASE_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0, 0.1)
                 time.sleep(delay)
                 continue
+            payment_breaker.record_success()
             break
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt == MAX_ATTEMPTS:
+                payment_breaker.record_failure()
                 if isinstance(e, httpx.ConnectError):
                     status_code = 503
                     detail = "Payment service unavailable"
@@ -261,3 +274,8 @@ def debug_sleep(seconds: float):
         "instance": INSTANCE_ID,
         "slept": seconds,
     }
+
+
+@app.get("/debug/payment-circuit")
+def payment_circuit():
+    return payment_breaker.snapshot()
