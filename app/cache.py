@@ -1,6 +1,7 @@
 import os
 
 from redis import Redis
+from redis.exceptions import RedisError
 
 _cache: Redis | None = None
 
@@ -17,8 +18,11 @@ def open_cache() -> None:
         url,
         decode_responses=True,
     )
-
-    _cache.ping()
+    try:
+        _cache.ping()
+        print("REDIS CONNECTED")
+    except RedisError as e:
+        print("REDIS CONNECTION ERROR:", e)
 
 
 def close_cache() -> None:
@@ -50,12 +54,14 @@ def release_lock(
     lock_token: str,
 ) -> bool:
     cache = get_cache()
-
-    result = cache.eval(
-        _RELEASE_LOCK_SCRIPT,
-        1,
-        lock_key,
-        lock_token,
-    )
-
-    return result == 1
+    try:
+        result = cache.eval(
+            _RELEASE_LOCK_SCRIPT,
+            1,
+            lock_key,
+            lock_token,
+        )
+        return result == 1
+    except RedisError as e:
+        print("REDIS ERROR:", e)
+        return False

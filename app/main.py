@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, status, Header
 from pydantic import BaseModel, Field
-
+from redis.exceptions import RedisError
 from app.db import close_pool, get_connection, open_pool
 from psycopg.types.json import Jsonb
 from app.cache import open_cache, close_cache, get_cache, release_lock
@@ -72,7 +72,11 @@ def get_order(order_id: int) -> dict:
     cache = get_cache()
     key = f"order:{order_id}"
     lock_key = f"lock:order:{order_id}"
-    cached = cache.get(key)
+    try:
+        cached = cache.get(key)
+    except RedisError as e:
+        print("REDIS ERROR:", e)
+        return load_order_from_db(order_id)
     ttl = CACHE_TTL_SECONDS + random.randint(0, 5)
     if cached == CACHE_NOT_FOUND:
         print("NEGATIVE CACHE HIT")
@@ -217,6 +221,24 @@ def pay(
             """,
                 (Jsonb(response), idempotency_key),
             )
-        cache = get_cache()
-        cache.delete(f"order:{order_id}")  # 删除缓存中的订单数据
+        try:
+            cache = get_cache()
+            cache.delete(f"order:{order_id}")  # 删除缓存中的订单数据
+        except RedisError as e:
+            print("REDIS ERROR:", e)
         return response
+
+
+def load_order_from_db(order_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, product_id, quantity, status
+            FROM orders
+            WHERE id = %s
+            """,
+            (order_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return dict(row)
