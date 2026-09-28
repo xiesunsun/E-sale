@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.db import close_pool, get_connection, open_pool
 from psycopg.types.json import Jsonb
-from app.cache import open_cache, close_cache, get_cache
+from app.cache import open_cache, close_cache, get_cache, release_lock
 import json
 import time
 import uuid
@@ -73,7 +73,7 @@ def get_order(order_id: int) -> dict:
         return json.loads(cached)
     print("CACHE MISS")
     lock_token = str(uuid.uuid4())
-    acquired = cache.set(lock_key, lock_token, nx=True, ex=3)  # 设置锁的过期时间为5秒
+    acquired = cache.set(lock_key, lock_token, nx=True, ex=3)  # 设置锁的过期时间为3秒
     if acquired:
         print("REBUILD LOCK ACQUIRED")
         try:
@@ -93,7 +93,7 @@ def get_order(order_id: int) -> dict:
                 cache.set(key, json.dumps(order), ex=CACHE_TTL_SECONDS)
                 return order
         finally:
-            cache.delete(lock_key)  # 删除锁，允许其他请求获取锁
+            release_lock(lock_key, lock_token)
     print("WAITING FOR CACHE REBUILD")
     for _ in range(20):
         time.sleep(0.05)

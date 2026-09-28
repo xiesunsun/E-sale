@@ -34,3 +34,28 @@ def get_cache() -> Redis:
         raise RuntimeError("Cache is not initialized")
 
     return _cache
+
+
+_RELEASE_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+"""
+
+
+def release_lock(
+    lock_key: str,
+    lock_token: str,
+) -> bool:
+    cache = get_cache()
+
+    result = cache.eval(
+        _RELEASE_LOCK_SCRIPT,
+        1,
+        lock_key,
+        lock_token,
+    )
+
+    return result == 1
