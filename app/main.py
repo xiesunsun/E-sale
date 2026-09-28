@@ -179,4 +179,6 @@ def pay(
             """,
                 (Jsonb(response), idempotency_key),
             )
+        cache = get_cache()
+        cache.delete(f"order:{order_id}")  # 删除缓存中的订单数据
         return response
