@@ -11,12 +11,17 @@ import time
 import uuid
 import random
 import os
+import httpx
 
 CACHE_NOT_FOUND = "__NOT_FOUND__"
 CACHE_TTL_SECONDS = 10
 NEGATIVE_CACHE_TTL_SECONDS = 5
 
 INSTANCE_ID = os.getenv("ESALE_INSTANCE_ID", "unknown")
+PAYMENT_SERVICE_URL = os.getenv(
+    "ESALE_PAYMENT_SERVICE_URL",
+    "http://127.0.0.1:9000",
+)
 
 
 class OrderCreate(BaseModel):
@@ -157,98 +162,34 @@ def pay(
         alias="Idempotency-Key",
     ),
 ):
-    with get_connection() as conn:
-        with conn.transaction():
-            inserted = conn.execute(
-                """
-                INSERT INTO idempotency_keys (
-                    idempotency_key,
-                    operation,
-                    resource_id,
-                    status
-                ) VALUES (%s, %s, %s, %s)
-                ON CONFLICT (idempotency_key) DO NOTHING
-                RETURNING idempotency_key
-            """,
-                (idempotency_key, "PAY_ORDER", order_id, "PROGRESSING"),
-            ).fetchone()
-            if inserted is None:
-                existing = conn.execute(
-                    """
-                    SELECT operation, resource_id, status, response_data
-                    FROM idempotency_keys
-                    WHERE idempotency_key = %s
-                """,
-                    (idempotency_key,),
-                ).fetchone()
-                if existing is None:
-                    raise RuntimeError("Idempotency record disappeared")
-                if (
-                    existing["operation"] != "PAY_ORDER"
-                    or existing["resource_id"] != order_id
-                ):
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Idempotency key already used for a different operation or resource",
-                    )
-                if existing["status"] == "COMPLETED":
-                    return existing["response_data"]
-                raise HTTPException(
-                    status_code=409,
-                    detail="Payment is already in progress for this order",
-                )
-            # 第一次请求支付
-            cursor = conn.execute(
-                """
-                UPDATE orders
-                SET status = 'PAID'
-                WHERE id = %s AND status = 'CREATED'
-            """,
-                (order_id,),
-            )
-            if cursor.rowcount == 0:
-                raise HTTPException(
-                    status_code=409, detail="Order already paid or does not exist"
-                )
-            conn.execute(
-                """
-                INSERT INTO payments (
-                order_id,
-                status
-                ) VALUES (%s, %s)
-            """,
-                (order_id, "SUCCESS"),
-            )
-            response = {"order_id": order_id, "status": "PAID"}
-            conn.execute(
-                """
-                INSERT INTO jobs (
-                    job_type,
-                    payload,
-                    status
-                ) VALUES (%s, %s, %s)
-            """,
-                (
-                    "SEND_PAYMENT_NOTIFICATION",
-                    Jsonb({"order_id": order_id}),
-                    "PENDING",
-                ),
-            )
-            conn.execute(
-                """
-                UPDATE idempotency_keys
-                SET status = 'COMPLETED',
-                    response_data = %s
-                WHERE idempotency_key = %s
-            """,
-                (Jsonb(response), idempotency_key),
-            )
-        try:
-            cache = get_cache()
-            cache.delete(f"order:{order_id}")  # 删除缓存中的订单数据
-        except RedisError as e:
-            print("REDIS ERROR:", e)
-        return response
+    response = httpx.post(
+        f"{PAYMENT_SERVICE_URL}/internal/pay/{order_id}",
+        headers={
+            "Idempotency-Key": idempotency_key,
+        },
+        timeout=2.0,
+    )
+
+    if response.status_code >= 400:
+        detail = response.json().get(
+            "detail",
+            "Payment service error",
+        )
+
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=detail,
+        )
+
+    result = response.json()
+
+    try:
+        cache = get_cache()
+        cache.delete(f"order:{order_id}")
+    except RedisError as e:
+        print("REDIS ERROR:", e)
+
+    return result
 
 
 def load_order_from_db(order_id: int) -> dict | None:
