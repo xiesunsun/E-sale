@@ -5,6 +5,21 @@ from app.db import (
     close_pool,
     get_connection,
 )
+import os
+import httpx
+
+EVENT_CONSUMER_URL = os.getenv(
+    "ESALE_EVENT_CONSUMER_URL",
+    "http://127.0.0.1:9100",
+)
+
+CRASH_AFTER_PUBLISH = (
+    os.getenv(
+        "ESALE_CRASH_AFTER_PUBLISH",
+        "0",
+    )
+    == "1"
+)
 
 
 def load_next_event():
@@ -30,8 +45,18 @@ def publish_event(event):
         "payload": event["payload"],
     }
 
-    # 现在先模拟外部消息系统
-    print("PUBLISH:", message)
+    response = httpx.post(
+        f"{EVENT_CONSUMER_URL}/events",
+        json=message,
+        timeout=2.0,
+    )
+
+    response.raise_for_status()
+
+    print(
+        "PUBLISH SUCCESS:",
+        message,
+    )
 
 
 def mark_published(event_id: int):
@@ -69,6 +94,8 @@ def main():
 
                 time.sleep(1)
                 continue
+            if CRASH_AFTER_PUBLISH:
+                os._exit(1)
 
             mark_published(event["id"])
 

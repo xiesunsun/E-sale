@@ -19,7 +19,9 @@ def reset_database():
     refunds,
     idempotency_keys,
     payments,
-    orders
+    orders,
+    consumer_deliveries
+...
 RESTART IDENTITY CASCADE;
             """)
 
