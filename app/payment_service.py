@@ -98,22 +98,6 @@ def pay_order(
                     detail="Payment already in progress",
                 )
 
-            # cursor = conn.execute(
-            #     """
-            #     UPDATE orders
-            #     SET status = 'PAID'
-            #     WHERE id = %s
-            #       AND status = 'CREATED'
-            #     """,
-            #     (order_id,),
-            # )
-
-            # if cursor.rowcount == 0:
-            #     raise HTTPException(
-            #         status_code=409,
-            #         detail="Order already paid or does not exist",
-            #     )
-
             payment = conn.execute(
                 """
                 INSERT INTO payments (order_id, status)
@@ -171,3 +155,61 @@ def pay_order(
 @app.get("/health/live")
 def liveness():
     return {"status": "alive"}
+
+
+@app.post("/internal/refund/{order_id}")
+def refund_order(
+    order_id: int,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+):
+    with get_connection() as conn:
+        with conn.transaction():
+            payment = conn.execute(
+                """
+                SELECT id
+                FROM payments
+                WHERE order_id = %s
+                  AND status = 'SUCCESS'
+                """,
+                (order_id,),
+            ).fetchone()
+
+            if payment is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="No successful payment to refund",
+                )
+
+            refund = conn.execute(
+                """
+                INSERT INTO refunds (
+                    order_id,
+                    status
+                )
+                VALUES (%s, 'SUCCESS')
+                ON CONFLICT (order_id) DO NOTHING
+                RETURNING id
+                """,
+                (order_id,),
+            ).fetchone()
+
+            # 已经退过，也视为幂等成功
+            if refund is None:
+                existing = conn.execute(
+                    """
+                    SELECT status
+                    FROM refunds
+                    WHERE order_id = %s
+                    """,
+                    (order_id,),
+                ).fetchone()
+
+                return {
+                    "order_id": order_id,
+                    "status": existing["status"],
+                }
+
+        return {
+            "order_id": order_id,
+            "status": "SUCCESS",
+        }

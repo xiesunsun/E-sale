@@ -228,10 +228,29 @@ def pay(
         )
 
     result = response.json()
-    if FAIL_AFTER_PAYMENT:
-        raise RuntimeError("Injected failure after payment commit")
+    try:
+        if FAIL_AFTER_PAYMENT:
+            raise RuntimeError("Injected failure after payment commit")
+        mark_order_paid(order_id)
+    except Exception as e:
+        refund_key = f"{idempotency_key}:refund"
+        refund_response = httpx.post(
+            f"{PAYMENT_SERVICE_URL}/internal/refund/{order_id}",
+            headers={
+                "Idempotency-Key": refund_key,
+            },
+            timeout=2.0,
+        )
+        if refund_response.status_code >= 400:
+            raise HTTPException(
+                status_code=refund_response.status_code,
+                detail=f"Refund failed after payment: {refund_response.json().get('detail', 'Unknown error')}",
+            ) from e
+        raise HTTPException(
+            status_code=500,
+            detail=f"Payment succeeded but marking order as paid failed. Refund initiated. Original error: {str(e)}",
+        ) from e
 
-    mark_order_paid(order_id)
     try:
         cache = get_cache()
         cache.delete(f"order:{order_id}")
