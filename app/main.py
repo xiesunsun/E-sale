@@ -31,6 +31,7 @@ RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
 FAIL_AFTER_PAYMENT = os.getenv("ESALE_FAIL_AFTER_PAYMENT", "0") == "1"
+CRASH_AFTER_PAYMENT = os.getenv("ESALE_CRASH_AFTER_PAYMENT", "0") == "1"
 
 
 class OrderCreate(BaseModel):
@@ -171,6 +172,19 @@ def pay(
         alias="Idempotency-Key",
     ),
 ):
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO payment_sagas (
+                order_id,
+                idempotency_key,
+                status
+            )
+            VALUES (%s, %s, 'STARTED')
+            ON CONFLICT (order_id) DO NOTHING
+            """,
+            (order_id, idempotency_key),
+        )
     if not payment_breaker.allow_request():
         raise HTTPException(
             status_code=503,
@@ -199,6 +213,15 @@ def pay(
                 time.sleep(delay)
                 continue
             payment_breaker.record_success()
+            with get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE payment_sagas
+                    SET status = 'PAYMENT_SUCCEEDED'
+                    WHERE order_id = %s
+                    """,
+                    (order_id,),
+                )
             break
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt == MAX_ATTEMPTS:
@@ -229,8 +252,8 @@ def pay(
 
     result = response.json()
     try:
-        if FAIL_AFTER_PAYMENT:
-            raise RuntimeError("Injected failure after payment commit")
+        if CRASH_AFTER_PAYMENT:
+            os._exit(1)
         mark_order_paid(order_id)
     except Exception as e:
         refund_key = f"{idempotency_key}:refund"
