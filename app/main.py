@@ -213,15 +213,6 @@ def pay(
                 time.sleep(delay)
                 continue
             payment_breaker.record_success()
-            with get_connection() as conn:
-                conn.execute(
-                    """
-                    UPDATE payment_sagas
-                    SET status = 'PAYMENT_SUCCEEDED'
-                    WHERE order_id = %s
-                    """,
-                    (order_id,),
-                )
             break
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt == MAX_ATTEMPTS:
@@ -249,12 +240,30 @@ def pay(
             status_code=response.status_code,
             detail=detail,
         )
+    with get_connection() as conn:
+        conn.execute(
+            """
+                        UPDATE payment_sagas
+                        SET status = 'PAYMENT_SUCCEEDED'
+                        WHERE order_id = %s
+                        """,
+            (order_id,),
+        )
 
     result = response.json()
     try:
         if CRASH_AFTER_PAYMENT:
             os._exit(1)
         mark_order_paid(order_id)
+        with get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE payment_sagas
+                SET status = 'COMPLETED'
+                WHERE order_id = %s
+                """,
+                (order_id,),
+            )
     except Exception as e:
         refund_key = f"{idempotency_key}:refund"
         refund_response = httpx.post(
@@ -273,7 +282,15 @@ def pay(
             status_code=500,
             detail=f"Payment succeeded but marking order as paid failed. Refund initiated. Original error: {str(e)}",
         ) from e
-
+        with get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE payment_sagas
+                SET status = 'COMPENSATED'
+                WHERE order_id = %s
+                """,
+                (order_id,),
+            )
     try:
         cache = get_cache()
         cache.delete(f"order:{order_id}")
