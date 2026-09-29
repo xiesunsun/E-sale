@@ -30,6 +30,9 @@ PAYMENT_SERVICE_URL = os.getenv(
 RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
+FAIL_AFTER_PAYMENT = os.getenv("ESALE_FAIL_AFTER_PAYMENT", "0") == "1"
+
+
 class OrderCreate(BaseModel):
     product_id: int = Field(gt=0)
     quantity: int = Field(gt=0)
@@ -225,7 +228,10 @@ def pay(
         )
 
     result = response.json()
+    if FAIL_AFTER_PAYMENT:
+        raise RuntimeError("Injected failure after payment commit")
 
+    mark_order_paid(order_id)
     try:
         cache = get_cache()
         cache.delete(f"order:{order_id}")
@@ -279,3 +285,45 @@ def debug_sleep(seconds: float):
 @app.get("/debug/payment-circuit")
 def payment_circuit():
     return payment_breaker.snapshot()
+
+
+def mark_order_paid(order_id: int):
+    with get_connection() as conn:
+        with conn.transaction():
+            updated = conn.execute(
+                """
+                UPDATE orders
+                SET status = 'PAID'
+                WHERE id = %s
+                  AND status = 'CREATED'
+                RETURNING id
+                """,
+                (order_id,),
+            ).fetchone()
+
+            if updated is not None:
+                return
+
+            order = conn.execute(
+                """
+                SELECT status
+                FROM orders
+                WHERE id = %s
+                """,
+                (order_id,),
+            ).fetchone()
+
+            if order is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Order not found",
+                )
+
+            # Retry 时可能之前已经更新成功
+            if order["status"] == "PAID":
+                return
+
+            raise HTTPException(
+                status_code=409,
+                detail="Order cannot be marked as paid",
+            )

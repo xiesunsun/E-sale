@@ -98,29 +98,36 @@ def pay_order(
                     detail="Payment already in progress",
                 )
 
-            cursor = conn.execute(
-                """
-                UPDATE orders
-                SET status = 'PAID'
-                WHERE id = %s
-                  AND status = 'CREATED'
-                """,
-                (order_id,),
-            )
+            # cursor = conn.execute(
+            #     """
+            #     UPDATE orders
+            #     SET status = 'PAID'
+            #     WHERE id = %s
+            #       AND status = 'CREATED'
+            #     """,
+            #     (order_id,),
+            # )
 
-            if cursor.rowcount == 0:
+            # if cursor.rowcount == 0:
+            #     raise HTTPException(
+            #         status_code=409,
+            #         detail="Order already paid or does not exist",
+            #     )
+
+            payment = conn.execute(
+                """
+                INSERT INTO payments (order_id, status)
+                VALUES (%s, %s)
+                ON CONFLICT (order_id) DO NOTHING
+                RETURNING id
+                """,
+                (order_id, "SUCCESS"),
+            ).fetchone()
+            if payment is None:
                 raise HTTPException(
                     status_code=409,
                     detail="Order already paid or does not exist",
                 )
-
-            conn.execute(
-                """
-                INSERT INTO payments (order_id, status)
-                VALUES (%s, %s)
-                """,
-                (order_id, "SUCCESS"),
-            )
 
             response = {
                 "order_id": order_id,
