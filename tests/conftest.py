@@ -13,17 +13,16 @@ def reset_cache():
 def reset_database():
     with get_connection() as conn:
         conn.execute("""
-           TRUNCATE TABLE
-    outbox_events,
-    payment_sagas,
-    refunds,
-    idempotency_keys,
-    payments,
-    orders,
-    consumer_deliveries
-...
-RESTART IDENTITY CASCADE;
-            """)
+    TRUNCATE TABLE
+        consumer_deliveries,
+        outbox_events,
+        payment_sagas,
+        refunds,
+        idempotency_keys,
+        payments,
+        orders
+    RESTART IDENTITY CASCADE;
+""")
 
 
 @pytest.fixture

@@ -22,19 +22,43 @@ CRASH_AFTER_PUBLISH = (
 )
 
 
-def load_next_event():
+def claim_event():
     with get_connection() as conn:
-        return conn.execute("""
-            SELECT
-                id,
-                event_type,
-                aggregate_id,
-                payload
-            FROM outbox_events
-            WHERE status = 'PENDING'
-            ORDER BY id
-            LIMIT 1
-            """).fetchone()
+        with conn.transaction():
+            event = conn.execute("""
+                SELECT
+                    id,
+                    event_type,
+                    aggregate_id,
+                    payload
+                FROM outbox_events
+                WHERE (
+                    status = 'PENDING'
+                    OR (
+                        status = 'PROCESSING'
+                        AND locked_at < now() - interval '10 seconds'
+                    )
+                )
+                ORDER BY id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+                """).fetchone()
+
+            if event is None:
+                return None
+
+            conn.execute(
+                """
+                UPDATE outbox_events
+                SET status = 'PROCESSING',
+                    locked_at = now(),
+                    attempts = attempts + 1
+                WHERE id = %s
+                """,
+                (event["id"],),
+            )
+
+            return event
 
 
 def publish_event(event):
@@ -65,7 +89,21 @@ def mark_published(event_id: int):
             """
             UPDATE outbox_events
             SET status = 'PUBLISHED',
-                published_at = now()
+                published_at = now(),
+                locked_at = NULL
+            WHERE id = %s
+            """,
+            (event_id,),
+        )
+
+
+def mark_publish_failed(event_id: int):
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE outbox_events
+            SET status = 'PENDING',
+                locked_at = NULL
             WHERE id = %s
             """,
             (event_id,),
@@ -77,7 +115,7 @@ def main():
 
     try:
         while True:
-            event = load_next_event()
+            event = claim_event()
 
             if event is None:
                 time.sleep(1)
@@ -85,6 +123,7 @@ def main():
 
             try:
                 publish_event(event)
+
             except Exception as e:
                 print(
                     "PUBLISH FAILED:",
@@ -92,12 +131,19 @@ def main():
                     e,
                 )
 
+                mark_publish_failed(
+                    event["id"],
+                )
+
                 time.sleep(1)
                 continue
+
             if CRASH_AFTER_PUBLISH:
                 os._exit(1)
 
-            mark_published(event["id"])
+            mark_published(
+                event["id"],
+            )
 
     finally:
         close_pool()
