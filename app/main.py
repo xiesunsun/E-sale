@@ -362,6 +362,27 @@ def mark_order_paid(order_id: int):
             ).fetchone()
 
             if updated is not None:
+                conn.execute(
+                    """
+                    INSERT INTO outbox_events (
+                        event_type,
+                        aggregate_id,
+                        payload,
+                        status
+                    )
+                    VALUES (%s, %s, %s, 'PENDING')
+                    ON CONFLICT (
+                        event_type,
+                        aggregate_id
+                    ) DO NOTHING
+                    """,
+                    (
+                        "ORDER_PAID",
+                        order_id,
+                        Jsonb({"order_id": order_id}),
+                    ),
+                )
+
                 return
 
             order = conn.execute(
