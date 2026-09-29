@@ -6,6 +6,8 @@ from fastapi import HTTPException
 
 from app.db import open_pool, close_pool, get_connection
 from app.main import mark_order_paid
+from redis.exceptions import RedisError
+from app.cache import open_cache, close_cache, get_cache
 
 PAYMENT_SERVICE_URL = os.getenv(
     "ESALE_PAYMENT_SERVICE_URL",
@@ -73,6 +75,10 @@ def recover_saga(saga):
     # 已知支付成功，继续完成订单
     try:
         mark_order_paid(order_id)
+        try:
+            get_cache().delete(f"order:{order_id}")
+        except RedisError as e:
+            print("REDIS ERROR:", e)
 
         update_saga_status(
             order_id,
@@ -121,7 +127,7 @@ def recover_saga(saga):
 
 def main():
     open_pool()
-
+    open_cache()
     try:
         while True:
             sagas = load_pending_sagas()
@@ -133,6 +139,7 @@ def main():
 
     finally:
         close_pool()
+        close_cache()
 
 
 if __name__ == "__main__":
